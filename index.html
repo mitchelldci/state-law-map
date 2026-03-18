@@ -6,6 +6,7 @@
 <title>State Employment Law Map</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--navy:#2b3353;--mid-blue:#6996ad;--light-gray:#c6c7d4;--bg:#f5f6fa;--card-bg:#fff;--text:#2b3353;--text-muted:#6b7194;--border:#e2e4ee;--accent:#e07a2f}
@@ -102,6 +103,8 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .gate-thanks{text-align:center;padding:1.5rem;animation:fadeUp .4s ease}
 .gate-thanks h4{font-family:'Source Serif 4',serif;font-size:1.1rem;color:var(--navy);margin:.3rem 0}
 .gate-thanks p{font-size:.82rem;color:var(--text-muted);max-width:400px;margin:0 auto}
+.pdf-btn{display:inline-block;margin-top:1rem;padding:.7rem 1.4rem;font-size:.88rem;font-weight:700;font-family:inherit;border:none;border-radius:8px;background:var(--navy);color:#fff;cursor:pointer;transition:all .2s;text-decoration:none}
+.pdf-btn:hover{background:#1e2540;transform:translateY(-1px);box-shadow:0 4px 12px rgba(43,51,83,.2)}
 @media(max-width:700px){
 .map-widget{padding:1rem .75rem}.tab-btn{font-size:.74rem;padding:.45rem .75rem}.map-header h2{font-size:1.1rem}
 #map-area{aspect-ratio:1.4/1}.popup{min-width:220px;max-width:280px}.dash-strip{grid-template-columns:1fr}
@@ -167,7 +170,9 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
           <div class="gate-thanks" id="gate-thanks" style="display:none">
             <div style="font-size:2rem">&#10003;</div>
             <h4>Thank you!</h4>
-            <p>Your personalized compliance report is on its way. A member of our team may reach out to discuss your specific needs.</p>
+            <p>Your personalized compliance report is ready. Click below to download it as a PDF.</p>
+            <button class="pdf-btn" id="download-pdf-btn" onclick="generatePDF()">Download My Report</button>
+            <p style="font-size:.74rem;color:var(--text-muted);margin-top:.75rem">A member of our team may also reach out to discuss your specific needs.</p>
           </div>
         </div>
       </div>
@@ -1666,6 +1671,239 @@ document.getElementById("gate-submit").addEventListener("click",function(){
   document.getElementById("email-gate").style.display="none";
   document.getElementById("gate-thanks").style.display="block";
 });
+
+function generatePDF(){
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({orientation:"portrait",unit:"mm",format:"letter"});
+  var pw = 215.9, ph = 279.4;
+  var ml = 20, mr = 20, mt = 20;
+  var cw = pw - ml - mr;
+  var y = mt;
+  var navy = [43,51,83];
+  var midBlue = [105,150,173];
+  var accent = [224,122,47];
+  var gray = [107,113,148];
+  var lightBg = [244,246,249];
+  var white = [255,255,255];
+  var borderColor = [226,228,238];
+
+  function checkPage(needed){
+    if(y + needed > ph - 25){ doc.addPage(); y = mt; return true; }
+    return false;
+  }
+
+  // ── HEADER BAR ──
+  doc.setFillColor(navy[0],navy[1],navy[2]);
+  doc.rect(0,0,pw,32,"F");
+  doc.setTextColor(255,255,255);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(18);
+  doc.text("State Employment Law",ml,15);
+  doc.text("Compliance Report",ml,24);
+  doc.setFontSize(9);
+  doc.setFont("helvetica","normal");
+  doc.text("Prepared by DCI Consulting Group",pw - mr,15,{align:"right"});
+  doc.text("dciconsult.com",pw - mr,21,{align:"right"});
+  var today = new Date();
+  var dateStr = today.toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"});
+  doc.text(dateStr,pw - mr,27,{align:"right"});
+  y = 40;
+
+  // ── PREPARED FOR ──
+  var fname = document.getElementById("gate-fname").value.trim();
+  var lname = document.getElementById("gate-lname").value.trim();
+  var company = document.getElementById("gate-company").value.trim();
+  if(fname || lname || company){
+    doc.setFillColor(lightBg[0],lightBg[1],lightBg[2]);
+    doc.roundedRect(ml,y,cw,16,2,2,"F");
+    doc.setTextColor(gray[0],gray[1],gray[2]);
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(9);
+    doc.text("PREPARED FOR",ml + 4,y + 6);
+    doc.setTextColor(navy[0],navy[1],navy[2]);
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(11);
+    var prepText = (fname + " " + lname).trim();
+    if(company) prepText += "  |  " + company;
+    doc.text(prepText,ml + 4,y + 13);
+    y += 22;
+  }
+
+  // ── SUMMARY BOX ──
+  var cats = [
+    {key:"aedt",label:"Bias Audits of AI Tools"},
+    {key:"affirmative",label:"State Affirmative Action"},
+    {key:"transparency",label:"State Pay Transparency"},
+    {key:"reporting",label:"State Pay Reporting"}
+  ];
+  var totalApplicable = 0;
+  var totalEffect = 0;
+  var totalProposed = 0;
+  var catResults = [];
+
+  cats.forEach(function(cat){
+    var ds = DATASETS[cat.key].states;
+    var applicable = [];
+    picked.forEach(function(ab){
+      var d = ds[ab];
+      if(d && d.status !== N){
+        var isE = d.status === "Law In Effect" || d.status === "Law in Effect";
+        applicable.push({ab:ab,name:NAMES[ab],status:d.status,isEffect:isE,law:d.law,link:d.link,desc:d.desc});
+        if(isE) totalEffect++; else totalProposed++;
+      }
+    });
+    totalApplicable += applicable.length;
+    catResults.push({label:cat.label,applicable:applicable});
+  });
+
+  // Summary stats bar
+  doc.setFillColor(navy[0],navy[1],navy[2]);
+  doc.roundedRect(ml,y,cw,22,2,2,"F");
+  var third = cw / 3;
+  doc.setTextColor(255,255,255);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(16);
+  doc.text(String(picked.size),ml + third * 0.5,y + 10,{align:"center"});
+  doc.text(String(totalApplicable),ml + third * 1.5,y + 10,{align:"center"});
+  doc.text(String(totalEffect),ml + third * 2.5,y + 10,{align:"center"});
+  doc.setFontSize(7);
+  doc.setFont("helvetica","normal");
+  doc.text("States Selected",ml + third * 0.5,y + 17,{align:"center"});
+  doc.text("Applicable Laws",ml + third * 1.5,y + 17,{align:"center"});
+  doc.text("Laws in Effect",ml + third * 2.5,y + 17,{align:"center"});
+  y += 28;
+
+  // ── CATEGORY SECTIONS ──
+  catResults.forEach(function(cat){
+    checkPage(20);
+
+    // Category header
+    doc.setFillColor(lightBg[0],lightBg[1],lightBg[2]);
+    doc.roundedRect(ml,y,cw,10,2,2,"F");
+    doc.setTextColor(navy[0],navy[1],navy[2]);
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(11);
+    doc.text(cat.label,ml + 4,y + 7);
+    doc.setTextColor(midBlue[0],midBlue[1],midBlue[2]);
+    doc.setFontSize(9);
+    doc.text(cat.applicable.length + " applicable",ml + cw - 4,y + 7,{align:"right"});
+    y += 14;
+
+    if(cat.applicable.length === 0){
+      doc.setTextColor(gray[0],gray[1],gray[2]);
+      doc.setFont("helvetica","italic");
+      doc.setFontSize(9);
+      doc.text("No applicable laws in your selected states.",ml + 4,y);
+      y += 8;
+    } else {
+      cat.applicable.forEach(function(st){
+        // Estimate height needed
+        var descLines = st.desc ? doc.splitTextToSize(st.desc, cw - 12) : [];
+        var lawLines = st.law ? doc.splitTextToSize(st.law, cw - 50) : [];
+        var blockHeight = 10 + (lawLines.length * 4) + (descLines.length * 3.8) + (st.link ? 5 : 0) + 4;
+        checkPage(blockHeight);
+
+        // State name + badge
+        doc.setTextColor(navy[0],navy[1],navy[2]);
+        doc.setFont("helvetica","bold");
+        doc.setFontSize(10);
+        doc.text(st.name,ml + 4,y + 4);
+
+        // Status badge
+        var badgeText = st.isEffect ? "IN EFFECT" : "PROPOSED";
+        var badgeColor = st.isEffect ? navy : midBlue;
+        var badgeW = doc.getTextWidth(badgeText) + 6;
+        var badgeX = ml + cw - badgeW - 2;
+        doc.setFillColor(badgeColor[0],badgeColor[1],badgeColor[2]);
+        doc.roundedRect(badgeX,y,badgeW,6,1.5,1.5,"F");
+        doc.setTextColor(255,255,255);
+        doc.setFont("helvetica","bold");
+        doc.setFontSize(6.5);
+        doc.text(badgeText,badgeX + 3,y + 4.2);
+        y += 8;
+
+        // Law name
+        if(st.law){
+          doc.setTextColor(navy[0],navy[1],navy[2]);
+          doc.setFont("helvetica","bold");
+          doc.setFontSize(8.5);
+          lawLines.forEach(function(line){
+            doc.text(line,ml + 4,y);
+            y += 3.8;
+          });
+          y += 1;
+        }
+
+        // Description
+        if(st.desc){
+          doc.setTextColor(gray[0],gray[1],gray[2]);
+          doc.setFont("helvetica","normal");
+          doc.setFontSize(8);
+          descLines.forEach(function(line){
+            checkPage(5);
+            doc.text(line,ml + 4,y);
+            y += 3.5;
+          });
+          y += 1;
+        }
+
+        // Link
+        if(st.link){
+          doc.setTextColor(midBlue[0],midBlue[1],midBlue[2]);
+          doc.setFont("helvetica","normal");
+          doc.setFontSize(7.5);
+          doc.textWithLink("Learn More",ml + 4,y,{url:st.link});
+          y += 5;
+        }
+
+        // Separator line
+        doc.setDrawColor(borderColor[0],borderColor[1],borderColor[2]);
+        doc.setLineWidth(0.3);
+        doc.line(ml + 4,y,ml + cw - 4,y);
+        y += 4;
+      });
+    }
+    y += 4;
+  });
+
+  // ── FOOTER ──
+  checkPage(20);
+  y += 4;
+  doc.setDrawColor(borderColor[0],borderColor[1],borderColor[2]);
+  doc.setLineWidth(0.5);
+  doc.line(ml,y,ml + cw,y);
+  y += 6;
+  doc.setTextColor(navy[0],navy[1],navy[2]);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(10);
+  doc.text("Need help navigating these requirements?",ml,y);
+  y += 5;
+  doc.setTextColor(gray[0],gray[1],gray[2]);
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(8.5);
+  var ctaLines = doc.splitTextToSize("DCI Consulting Group specializes in employment compliance consulting, including OFCCP compliance, pay equity analysis, and workforce analytics. Contact us to discuss how these laws affect your organization.",cw);
+  ctaLines.forEach(function(line){ doc.text(line,ml,y); y += 4; });
+  y += 3;
+  doc.setTextColor(midBlue[0],midBlue[1],midBlue[2]);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(9);
+  doc.textWithLink("www.dciconsult.com",ml,y,{url:"https://www.dciconsult.com"});
+
+  // Page numbers on all pages
+  var pageCount = doc.internal.getNumberOfPages();
+  for(var i = 1; i <= pageCount; i++){
+    doc.setPage(i);
+    doc.setTextColor(gray[0],gray[1],gray[2]);
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(7);
+    doc.text("DCI Consulting Group  |  State Employment Law Compliance Report  |  " + dateStr,pw/2,ph - 10,{align:"center"});
+    doc.text("Page " + i + " of " + pageCount,pw - mr,ph - 10,{align:"right"});
+  }
+
+  // Save
+  var filename = "Compliance-Report-" + today.toISOString().split("T")[0] + ".pdf";
+  doc.save(filename);
+}
 </script>
 </body>
 </html>
